@@ -1,0 +1,9 @@
+asgiref==3.11.1
+Django==5.2.3
+huey==3.0.3
+mysqlclient==2.2.7
+pymysql==1.1.1
+slack_bolt==1.28.0
+slack_sdk==3.42.0
+sqlparse==0.5.5
+redis==5.0.1
