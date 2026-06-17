@@ -4,9 +4,18 @@ from datetime import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import SportEvent
-from .slack_client import send_event_message, open_create_event_modal
+from .models import SportEvent, EventParticipant
+from .slack_client import (
+    send_event_message,
+    open_create_event_modal,
+    update_event_message,
+    get_client
+)
 
+from .tasks import send_test_reminder_once  # opzionale (test manuale)
+
+
+# ---------------- CREATE EVENT ----------------
 @csrf_exempt
 def create_event(request):
     if request.method != "POST":
@@ -21,7 +30,7 @@ def create_event(request):
             location=data["location"],
             datetime=datetime.fromisoformat(data["datetime"]),
             creator_id=data.get("creator_id", "anonymous"),
-            slack_channel=data.get("slack_channel", "")
+            slack_channel=data.get("slack_channel", "C0BAPGC76N6")
         )
 
         send_event_message(event)
@@ -35,6 +44,8 @@ def create_event(request):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
 
+
+# ---------------- LIST EVENTS ----------------
 def list_events(request):
     events = SportEvent.objects.all().order_by("-datetime")
 
@@ -50,6 +61,8 @@ def list_events(request):
         for e in events
     ], safe=False)
 
+
+# ---------------- SLACK CREATE EVENT ----------------
 @csrf_exempt
 def slack_create_event(request):
     if request.method != "POST":
@@ -62,10 +75,7 @@ def slack_create_event(request):
             open_create_event_modal(trigger_id)
             return JsonResponse({})
         except Exception as e:
-            return JsonResponse({
-                "response_type": "ephemeral",
-                "text": f"Errore modal: {str(e)}"
-            })
+            return JsonResponse({"text": str(e)})
 
     user_text = request.POST.get("text", "")
 
@@ -78,7 +88,7 @@ def slack_create_event(request):
             location=parts[2] if len(parts) > 2 else "Slack",
             datetime=datetime.now(),
             creator_id="slack",
-            slack_channel=""
+            slack_channel="C0BAPGC76N6"
         )
 
         send_event_message(event)
@@ -89,51 +99,124 @@ def slack_create_event(request):
         })
 
     except Exception as e:
-        return JsonResponse({
-            "response_type": "ephemeral",
-            "text": f"Errore: {str(e)}"
-        })
+        return JsonResponse({"text": str(e)})
 
 
+# ---------------- SLACK INTERACTIONS ----------------
 @csrf_exempt
 def slack_interaction(request):
     if request.method != "POST":
         return JsonResponse({}, status=200)
 
     try:
-        payload_str = request.POST.get("payload")
+        payload_str = request.POST.get("payload") or request.body.decode("utf-8")
 
-        if not payload_str:
-            payload_str = request.body.decode("utf-8")
+        if payload_str.startswith("payload="):
+            payload_str = payload_str.replace("payload=", "", 1)
 
         payload = json.loads(payload_str)
 
+        # ================= VIEW SUBMISSION =================
         if payload.get("type") == "view_submission":
 
             state = payload["view"]["state"]["values"]
 
             title = state["title_block"]["title"]["value"]
-
             sport = state["sport_block"]["sport_type"]["selected_option"]["value"]
-
             location = state["location_block"]["location"]["value"]
 
             date = state["date_block"]["date"]["selected_date"]
             time = state["time_block"]["time"]["selected_time"]
 
-            from datetime import datetime
-            event_datetime = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+            event_datetime = datetime.strptime(
+                f"{date} {time}",
+                "%Y-%m-%d %H:%M"
+            )
 
-            SportEvent.objects.create(
+            event = SportEvent.objects.create(
                 title=title,
                 sport_type=sport,
                 location=location,
                 datetime=event_datetime,
                 creator_id=payload["user"]["id"],
-                slack_channel=""
+                slack_channel="C0BAPGC76N6"
             )
 
+            send_event_message(event)
+
             return JsonResponse({"response_action": "clear"})
+
+
+        # ================= BUTTON ACTIONS =================
+        if payload.get("type") == "block_actions":
+
+            action = payload["actions"][0]
+            event_id = action["value"]
+            user_id = payload["user"]["id"]
+
+            event = SportEvent.objects.get(id=event_id)
+
+            # -------- JOIN EVENT --------
+            if action["action_id"] == "join_event":
+
+                participant, _ = EventParticipant.objects.get_or_create(
+                    slack_user_id=user_id
+                )
+
+                already_joined = event.participants.filter(
+                    slack_user_id=user_id
+                ).exists()
+
+                if already_joined:
+                    event.participants.remove(participant)
+                    message = "Sei stato rimosso dall'evento"
+                else:
+                    event.participants.add(participant)
+                    message = "Sei stato aggiunto all'evento"
+
+                event.save()
+                update_event_message(event)
+
+                return JsonResponse({
+                    "response_type": "ephemeral",
+                    "text": message
+                })
+
+
+            # -------- LIST PARTICIPANTS --------
+            if action["action_id"] == "list_participants":
+
+                participants = event.participants.all()
+                client = get_client()
+
+                names = []
+
+                for p in participants:
+                    try:
+                        res = client.users_info(user=p.slack_user_id)
+                        user = res.get("user", {})
+                        profile = user.get("profile", {})
+
+                        name = (
+                            profile.get("display_name")
+                            or profile.get("real_name")
+                            or user.get("name")
+                            or p.slack_user_id
+                        )
+                    except Exception:
+                        name = p.slack_user_id
+
+                    names.append(f"- {name}")
+
+                text = "\n".join(names) if names else "Nessun partecipante"
+
+                client.chat_postEphemeral(
+                    channel=event.slack_channel,
+                    user=user_id,
+                    text=f"Partecipanti ({event.title}) ({participants.count()}):\n{text}"
+                )
+
+                return JsonResponse({}, status=200)
 
         return JsonResponse({})
 
@@ -144,6 +227,7 @@ def slack_interaction(request):
         })
 
 
+# ---------------- SLACK EVENTS COMMAND ----------------
 @csrf_exempt
 def slack_events(request):
     if request.method != "POST":
@@ -160,9 +244,26 @@ def slack_events(request):
     text = "Eventi attivi:\n\n"
 
     for e in events:
-        text += f"- {e.title} ({e.sport_type}) | {e.location} | {e.datetime.strftime('%d-%m-%Y %H:%M')}\n"
+        text += (
+            f"- {e.title} ({e.sport_type}) | "
+            f"{e.location} | "
+            f"{e.datetime.strftime('%d-%m-%Y %H:%M')}\n"
+        )
 
     return JsonResponse({
         "response_type": "in_channel",
         "text": text
     })
+
+
+# ---------------- TEST REMINDER MANUALE ----------------
+@csrf_exempt
+def test_reminder(request):
+    """
+    Endpoint per test immediato Huey reminder.
+    """
+    try:
+        send_test_reminder_once()
+        return JsonResponse({"status": "sent"})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)

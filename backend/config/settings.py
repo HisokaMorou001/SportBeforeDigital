@@ -1,5 +1,7 @@
 from pathlib import Path
 import pymysql
+import os
+
 
 pymysql.install_as_MySQLdb()
 
@@ -15,6 +17,16 @@ ALLOWED_HOSTS = [
     "absently-announcer-goggles.ngrok-free.dev",
 ]
 
+HUEY = {
+    "huey_class": "huey.RedisHuey",
+    "name": "sport",
+    "immediate": False,
+    "connection": {
+        "host": "redis",
+        "port": 6379,
+    }
+}
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -22,6 +34,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'huey.contrib.djhuey',
     'events',
 ]
 

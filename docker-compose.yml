@@ -20,12 +20,14 @@ services:
   redis:
     image: redis:7
     restart: always
+    ports:
+      - "6379:6379"
 
   web:
     build: ./backend
     command: >
       sh -c "python manage.py migrate &&
-            python manage.py runserver 0.0.0.0:8000"
+             python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend:/app
     ports:
@@ -36,7 +38,20 @@ services:
       redis:
         condition: service_started
     env_file:
-    - ./.env
+      - ./.env
+
+  huey:
+    build: ./backend
+    command: python manage.py run_huey
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    env_file:
+      - ./.env
 
 volumes:
   db_data:
