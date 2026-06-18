@@ -7,4 +7,3 @@ class EventsConfig(AppConfig):
 
     def ready(self):
         import events.tasks
-        print("EVENTS READY")

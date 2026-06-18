@@ -28,15 +28,15 @@ def build_blocks(event):
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Luogo:*\n{event.location}"
+                    "text": f"*Location:*\n{event.location}"
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Data:*\n{event.datetime.strftime('%d/%m/%Y')}"
+                    "text": f"*Date:*\n{event.datetime.strftime('%d/%m/%Y')}"
                 },
                 {
                     "type": "mrkdwn",
-                    "text": f"*Ora:*\n{event.datetime.strftime('%H:%M')}"
+                    "text": f"*Time:*\n{event.datetime.strftime('%H:%M')}"
                 },
             ]
         },
@@ -45,7 +45,7 @@ def build_blocks(event):
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"👥 Partecipanti: *{count}*"
+                    "text": f"👥 Participants: *{count}*"
                 }
             ]
         },
@@ -57,7 +57,7 @@ def build_blocks(event):
                     "style": "primary",
                     "text": {
                         "type": "plain_text",
-                        "text": "Partecipa"
+                        "text": "Join"
                     },
                     "action_id": "join_event",
                     "value": str(event.id)
@@ -66,7 +66,7 @@ def build_blocks(event):
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": f"Partecipanti ({count})"
+                        "text": f"Participants ({count})"
                     },
                     "action_id": "list_participants",
                     "value": str(event.id)
@@ -84,7 +84,7 @@ def send_event_message(event: SportEvent):
     try:
         response = client.chat_postMessage(
             channel=SLACK_DEFAULT_CHANNEL,
-            text=f"Nuovo evento: {event.title}",
+            text=f"New event: {event.title}",
             blocks=build_blocks(event)
         )
 
@@ -94,11 +94,12 @@ def send_event_message(event: SportEvent):
 
         client.chat_postMessage(
             channel=SLACK_DEFAULT_CHANNEL,
-            text="<!channel> Nuovo evento creato! Clicca per partecipare"
+            text="*<!channel> A new event has been created! Click to join.*"
         )
 
     except Exception as e:
-        print("Errore Slack chat_postMessage:", e)
+        print("Slack chat_postMessage error:", e)
+
 
 def update_event_message(event: SportEvent):
     if not event.slack_ts:
@@ -110,14 +111,14 @@ def update_event_message(event: SportEvent):
         client.chat_update(
             channel=event.slack_channel,
             ts=event.slack_ts,
-            text=f"Nuovo evento: {event.title}",
+            text=f"New event: {event.title}",
             blocks=build_blocks(event)
         )
 
-        print("Messaggio Slack aggiornato.")
+        print("Slack message updated.")
 
     except Exception as e:
-        print("Errore aggiornamento Slack:", e)
+        print("Slack update error:", e)
 
 
 def open_create_event_modal(trigger_id):
@@ -130,15 +131,15 @@ def open_create_event_modal(trigger_id):
             "callback_id": "create_event_modal",
             "title": {
                 "type": "plain_text",
-                "text": "Crea Evento"
+                "text": "Create Event"
             },
             "submit": {
                 "type": "plain_text",
-                "text": "Crea"
+                "text": "Create"
             },
             "close": {
                 "type": "plain_text",
-                "text": "Annulla"
+                "text": "Cancel"
             },
             "blocks": [
                 {
@@ -146,7 +147,7 @@ def open_create_event_modal(trigger_id):
                     "block_id": "title_block",
                     "label": {
                         "type": "plain_text",
-                        "text": "Titolo"
+                        "text": "Title"
                     },
                     "element": {
                         "type": "plain_text_input",
@@ -165,17 +166,17 @@ def open_create_event_modal(trigger_id):
                         "action_id": "sport_type",
                         "options": [
                             {"text": {"type": "plain_text", "text": "Jogging"}, "value": "jogging"},
-                            {"text": {"type": "plain_text", "text": "Calcio"}, "value": "soccer"},
-                            {"text": {"type": "plain_text", "text": "Basket"}, "value": "basketball"},
+                            {"text": {"type": "plain_text", "text": "Soccer"}, "value": "soccer"},
+                            {"text": {"type": "plain_text", "text": "Basketball"}, "value": "basketball"},
                             {"text": {"type": "plain_text", "text": "Tennis"}, "value": "tennis"},
                             {"text": {"type": "plain_text", "text": "Yoga"}, "value": "yoga"},
-                            {"text": {"type": "plain_text", "text": "Palestra"}, "value": "gym"},
-                            {"text": {"type": "plain_text", "text": "Biciclettata"}, "value": "bike"},
-                            {"text": {"type": "plain_text", "text": "Beach Volley"}, "value": "beach_volley"},
-                            {"text": {"type": "plain_text", "text": "Escursione"}, "value": "hiking"},
-                            {"text": {"type": "plain_text", "text": "Nuoto"}, "value": "swimming"},
-                            {"text": {"type": "plain_text", "text": "Scacchi"}, "value": "chess"},
-                            {"text": {"type": "plain_text", "text": "Videogiochi"}, "value": "videogames"}
+                            {"text": {"type": "plain_text", "text": "Gym"}, "value": "gym"},
+                            {"text": {"type": "plain_text", "text": "Cycling"}, "value": "bike"},
+                            {"text": {"type": "plain_text", "text": "Beach Volleyball"}, "value": "beach_volley"},
+                            {"text": {"type": "plain_text", "text": "Hiking"}, "value": "hiking"},
+                            {"text": {"type": "plain_text", "text": "Swimming"}, "value": "swimming"},
+                            {"text": {"type": "plain_text", "text": "Chess"}, "value": "chess"},
+                            {"text": {"type": "plain_text", "text": "Video Games"}, "value": "videogames"}
                         ]
                     }
                 },
@@ -184,7 +185,7 @@ def open_create_event_modal(trigger_id):
                     "block_id": "location_block",
                     "label": {
                         "type": "plain_text",
-                        "text": "Luogo"
+                        "text": "Location"
                     },
                     "element": {
                         "type": "plain_text_input",
@@ -196,7 +197,7 @@ def open_create_event_modal(trigger_id):
                     "block_id": "date_block",
                     "label": {
                         "type": "plain_text",
-                        "text": "Data"
+                        "text": "Date"
                     },
                     "element": {
                         "type": "datepicker",
@@ -208,7 +209,7 @@ def open_create_event_modal(trigger_id):
                     "block_id": "time_block",
                     "label": {
                         "type": "plain_text",
-                        "text": "Ora"
+                        "text": "Time"
                     },
                     "element": {
                         "type": "timepicker",

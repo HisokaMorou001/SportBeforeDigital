@@ -8,3 +8,4 @@ slack_sdk==3.42.0
 sqlparse==0.5.5
 redis==5.0.1
 django-huey
+pytz

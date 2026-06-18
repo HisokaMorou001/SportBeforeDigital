@@ -25,10 +25,7 @@ class SportEvent(models.Model):
 
     creator_id = models.CharField(max_length=50)
 
-    # Canale Slack dove viene pubblicato l'evento
     slack_channel = models.CharField(max_length=50, blank=True, default="")
-
-    # Timestamp del messaggio Slack (serve per aggiornarlo)
     slack_ts = models.CharField(max_length=50, blank=True, default="")
 
     participants = models.ManyToManyField(
@@ -36,6 +33,8 @@ class SportEvent(models.Model):
         related_name="events",
         blank=True
     )
+    
+    started = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -46,7 +45,6 @@ class SportEvent(models.Model):
 class EventParticipant(models.Model):
     slack_user_id = models.CharField(max_length=50, unique=True)
     display_name = models.CharField(max_length=100, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -1,8 +1,9 @@
 import json
-from datetime import datetime
+from datetime import datetime as dt
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
 
 from .models import SportEvent, EventParticipant
 from .slack_client import (
@@ -12,7 +13,7 @@ from .slack_client import (
     get_client
 )
 
-from .tasks import send_test_reminder_once  # opzionale (test manuale)
+from .tasks import send_test_reminder_once
 
 
 # ---------------- CREATE EVENT ----------------
@@ -24,13 +25,20 @@ def create_event(request):
     try:
         data = json.loads(request.body)
 
+        naive_dt = dt.fromisoformat(data["datetime"])
+        event_datetime = timezone.make_aware(
+            naive_dt,
+            timezone.get_current_timezone()
+        )
+
         event = SportEvent.objects.create(
             title=data["title"],
             sport_type=data["sport_type"],
             location=data["location"],
-            datetime=datetime.fromisoformat(data["datetime"]),
+            datetime=event_datetime,
             creator_id=data.get("creator_id", "anonymous"),
-            slack_channel=data.get("slack_channel", "C0BAPGC76N6")
+            slack_channel=data.get("slack_channel", "C0BAPGC76N6"),
+            started=False
         )
 
         send_event_message(event)
@@ -45,9 +53,14 @@ def create_event(request):
         return JsonResponse({"error": str(e)}, status=400)
 
 
-# ---------------- LIST EVENTS ----------------
+# ---------------- LIST EVENTS (NOT STARTED) ----------------
 def list_events(request):
-    events = SportEvent.objects.all().order_by("-datetime")
+    now = timezone.now()
+
+    events = SportEvent.objects.filter(
+        started=False,
+        datetime__gte=now
+    ).order_by("datetime")[:10]
 
     return JsonResponse([
         {
@@ -83,19 +96,20 @@ def slack_create_event(request):
         parts = [p.strip() for p in user_text.split("|")]
 
         event = SportEvent.objects.create(
-            title=parts[0] if len(parts) > 0 else "Evento Slack",
+            title=parts[0] if len(parts) > 0 else "Slack Event",
             sport_type=parts[1] if len(parts) > 1 else "jogging",
             location=parts[2] if len(parts) > 2 else "Slack",
-            datetime=datetime.now(),
+            datetime=timezone.now(),
             creator_id="slack",
-            slack_channel="C0BAPGC76N6"
+            slack_channel="C0BAPGC76N6",
+            started=False
         )
 
         send_event_message(event)
 
         return JsonResponse({
             "response_type": "ephemeral",
-            "text": f"Evento creato: {event.title}"
+            "text": f"Event created: {event.title}"
         })
 
     except Exception as e:
@@ -128,9 +142,11 @@ def slack_interaction(request):
             date = state["date_block"]["date"]["selected_date"]
             time = state["time_block"]["time"]["selected_time"]
 
-            event_datetime = datetime.strptime(
-                f"{date} {time}",
-                "%Y-%m-%d %H:%M"
+            naive_dt = dt.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+
+            event_datetime = timezone.make_aware(
+                naive_dt,
+                timezone.get_current_timezone()
             )
 
             event = SportEvent.objects.create(
@@ -139,13 +155,13 @@ def slack_interaction(request):
                 location=location,
                 datetime=event_datetime,
                 creator_id=payload["user"]["id"],
-                slack_channel="C0BAPGC76N6"
+                slack_channel="C0BAPGC76N6",
+                started=False
             )
 
             send_event_message(event)
 
             return JsonResponse({"response_action": "clear"})
-
 
         # ================= BUTTON ACTIONS =================
         if payload.get("type") == "block_actions":
@@ -169,10 +185,10 @@ def slack_interaction(request):
 
                 if already_joined:
                     event.participants.remove(participant)
-                    message = "Sei stato rimosso dall'evento"
+                    message = "You have been removed from the event"
                 else:
                     event.participants.add(participant)
-                    message = "Sei stato aggiunto all'evento"
+                    message = "You have been added to the event"
 
                 event.save()
                 update_event_message(event)
@@ -181,7 +197,6 @@ def slack_interaction(request):
                     "response_type": "ephemeral",
                     "text": message
                 })
-
 
             # -------- LIST PARTICIPANTS --------
             if action["action_id"] == "list_participants":
@@ -208,12 +223,15 @@ def slack_interaction(request):
 
                     names.append(f"- {name}")
 
-                text = "\n".join(names) if names else "Nessun partecipante"
+                text = "\n".join(names) if names else "*No participants*"
 
                 client.chat_postEphemeral(
                     channel=event.slack_channel,
                     user=user_id,
-                    text=f"Partecipanti ({event.title}) ({participants.count()}):\n{text}"
+                    text=(
+                        f"*:busts_in_silhouette: PARTICIPANTS "
+                        f"({event.title}) | TOTAL: ({participants.count()}):*\n{text}"
+                    )
                 )
 
                 return JsonResponse({}, status=200)
@@ -233,21 +251,26 @@ def slack_events(request):
     if request.method != "POST":
         return JsonResponse({"text": "POST only"}, status=200)
 
-    events = SportEvent.objects.all().order_by("-datetime")[:10]
+    now = timezone.now()
+
+    events = SportEvent.objects.filter(
+        started=False,
+        datetime__gte=now
+    ).order_by("datetime")[:10]
 
     if not events:
         return JsonResponse({
             "response_type": "in_channel",
-            "text": "Nessun evento disponibile"
+            "text": "*No events available*"
         })
 
-    text = "Eventi attivi:\n\n"
+    text = "*:calendar: Active events:*\n\n"
 
     for e in events:
         text += (
             f"- {e.title} ({e.sport_type}) | "
             f"{e.location} | "
-            f"{e.datetime.strftime('%d-%m-%Y %H:%M')}\n"
+            f"{timezone.localtime(e.datetime).strftime('%d-%m-%Y %H:%M')}\n"
         )
 
     return JsonResponse({
@@ -256,12 +279,9 @@ def slack_events(request):
     })
 
 
-# ---------------- TEST REMINDER MANUALE ----------------
+# ---------------- MANUAL TEST REMINDER ----------------
 @csrf_exempt
 def test_reminder(request):
-    """
-    Endpoint per test immediato Huey reminder.
-    """
     try:
         send_test_reminder_once()
         return JsonResponse({"status": "sent"})
